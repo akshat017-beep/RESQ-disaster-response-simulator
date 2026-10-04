@@ -1,0 +1,146 @@
+
+==============================================================
+  RESQ SIMULATOR  -  Algorithms That Save Lives
+  Disaster : Earthquake   (severity 7/10)
+  Zone     : Dehradun - Central Sector
+==============================================================
+
+-- Live map updates --
+  ! ROAD BLOCKED: Bindal Bridge <-> Hill Colony
+
+-- Deployed resources (polymorphic describe()) --
+  [Ground Team] ALPHA-1 | base: Command Centre | 8 responders, heavy cutting/lifting gear
+  [Ground Team] BRAVO-2 | base: Paltan Bazaar | 5 responders, light rescue kit
+  [Ambulance]   AMB-108 | base: Doon Trauma Ctr | advanced life support, siren priority
+  [Ambulance]   AMB-102 | base: Command Centre | basic life support, siren priority
+  [Hospital]    Doon Trauma Ctr | 3 beds | trauma centre
+  [Hospital]    City Clinic | 4 beds | general care
+
+-- Incoming emergency calls --
+  + Call received: #101 Meera Joshi at Govt School | severity 9 (RED) -> PRIORITY QUEUE
+  + Call received: #102 Rohit Negi at Paltan Bazaar | severity 5 (YELLOW) -> normal queue
+  + Call received: #103 Anita Bisht at Riverside Slum | severity 8 (RED) -> PRIORITY QUEUE
+  + Call received: #104 Karan Rawat at Clock Tower | severity 3 (GREEN) -> normal queue
+  + Call received: #105 Sunil Thapa at Bindal Bridge | severity 7 (RED) -> PRIORITY QUEUE
+  + Call received: #106 Priya Sharma at Rajpur Road | severity 2 (GREEN) -> normal queue
+  + Call received: #107 Dev Uniyal at Hill Colony | severity 6 (YELLOW) -> normal queue
+
+-- BFS area exploration from Command Centre --
+   reachable locations: 9 of 10
+   hop 0  Command Centre
+   hop 1  Clock Tower
+   hop 1  Rajpur Road
+   hop 2  Govt School
+   hop 2  Paltan Bazaar
+   hop 3  Doon Trauma Ctr
+   hop 3  Bindal Bridge
+   hop 3  City Clinic
+   hop 4  Riverside Slum
+   !! CUT OFF: Hill Colony (needs air support)
+
+-- Dijkstra route table from Command Centre --
+   LOCATION              MINUTES   ROUTE
+   Command Centre        0         Command Centre
+   Clock Tower           4         Command Centre -> Clock Tower
+   Rajpur Road           7         Command Centre -> Rajpur Road
+   Govt School           9         Command Centre -> Rajpur Road -> Govt School
+   Paltan Bazaar         7         Command Centre -> Clock Tower -> Paltan Bazaar
+   Bindal Bridge         12        Command Centre -> Clock Tower -> Paltan Bazaar -> Bindal Bridge
+   Riverside Slum        15        Command Centre -> Clock Tower -> Paltan Bazaar -> Bindal Bridge -> Riverside Slum
+   Doon Trauma Ctr       13        Command Centre -> Rajpur Road -> Govt School -> Doon Trauma Ctr
+   City Clinic           13        Command Centre -> Clock Tower -> Paltan Bazaar -> City Clinic
+   Hill Colony           unreachable
+
+-- DISPATCH: critical victims first (priority queue), then FIFO queue --
+
+  [CRITICAL] victim #101 Meera Joshi (RED, severity 9) at Govt School
+     assigned : BRAVO-2 (RescueTeam)
+     route    : Paltan Bazaar -> Clock Tower -> Govt School
+     ETA      : 9 min
+     hospital : Doon Trauma Ctr (4 min, 2 beds left)
+     transfer : Govt School -> Doon Trauma Ctr
+     STATUS   : RESCUED in 13 min
+
+  [CRITICAL] victim #103 Anita Bisht (RED, severity 8) at Riverside Slum
+     assigned : BRAVO-2 (RescueTeam)
+     route    : Paltan Bazaar -> Bindal Bridge -> Riverside Slum
+     ETA      : 8 min
+     hospital : Doon Trauma Ctr (21 min, 1 beds left)
+     transfer : Riverside Slum -> Bindal Bridge -> Paltan Bazaar -> Clock Tower -> Govt School -> Doon Trauma Ctr
+     STATUS   : RESCUED in 29 min
+
+  [CRITICAL] victim #105 Sunil Thapa (RED, severity 7) at Bindal Bridge
+     assigned : BRAVO-2 (RescueTeam)
+     route    : Paltan Bazaar -> Bindal Bridge
+     ETA      : 5 min
+     hospital : Doon Trauma Ctr (18 min, 0 beds left)
+     transfer : Bindal Bridge -> Paltan Bazaar -> Clock Tower -> Govt School -> Doon Trauma Ctr
+     STATUS   : RESCUED in 23 min
+
+  [ROUTINE ] victim #102 Rohit Negi (YELLOW, severity 5) at Paltan Bazaar
+     assigned : BRAVO-2 (RescueTeam)
+     route    : Paltan Bazaar
+     ETA      : 0 min
+     hospital : City Clinic (6 min, 3 beds left)
+     transfer : Paltan Bazaar -> City Clinic
+     STATUS   : RESCUED in 6 min
+
+  [ROUTINE ] victim #104 Karan Rawat (GREEN, severity 3) at Clock Tower
+     assigned : AMB-102 (Ambulance)
+     route    : Command Centre -> Clock Tower
+     ETA      : 2 min
+     hospital : City Clinic (9 min, 2 beds left)
+     transfer : Clock Tower -> Paltan Bazaar -> City Clinic
+     STATUS   : RESCUED in 11 min
+
+  [ROUTINE ] victim #106 Priya Sharma (GREEN, severity 2) at Rajpur Road
+     assigned : AMB-108 (Ambulance)
+     route    : Doon Trauma Ctr -> Govt School -> Rajpur Road
+     ETA      : 3 min
+     hospital : City Clinic (17 min, 1 beds left)
+     transfer : Rajpur Road -> Govt School -> Clock Tower -> Paltan Bazaar -> City Clinic
+     STATUS   : RESCUED in 20 min
+
+  [ROUTINE ] victim #107 Dev Uniyal (YELLOW, severity 6) at Hill Colony
+     x no unit can reach this location - queued for air support
+
+-- Triage list (insertion sort by severity) --
+   ID    NAME              AGE   SEV   STATUS
+   101   Meera Joshi       34    9     rescued
+   103   Anita Bisht       67    8     rescued
+   105   Sunil Thapa       48    7     rescued
+   107   Dev Uniyal        55    6     WAITING
+   102   Rohit Negi        12    5     rescued
+   104   Karan Rawat       25    3     rescued
+   106   Priya Sharma      19    2     rescued
+   binary search for id 104 -> index 3 (Karan Rawat)
+   linear search for "Meera Joshi" -> index 0
+
+-- Mission summary --
+   disaster        : Earthquake @ Dehradun - Central Sector
+   victims logged  : 7
+   rescued         : 6
+   unreachable     : 1
+   units deployed  : 4
+   avg response    : 17 min
+   Doon Trauma Ctr beds: 0/3
+   City Clinic beds: 1/4
+
+-- Operation history (stack: most recent first) --
+   UNREACHABLE victim #107
+   RESCUED victim #106 by AMB-108
+   RESCUED victim #104 by AMB-102
+   RESCUED victim #102 by BRAVO-2
+   RESCUED victim #105 by BRAVO-2
+   RESCUED victim #103 by BRAVO-2
+   RESCUED victim #101 by BRAVO-2
+   REGISTERED victim #107 (YELLOW)
+   REGISTERED victim #106 (GREEN)
+   REGISTERED victim #105 (RED)
+   REGISTERED victim #104 (GREEN)
+   REGISTERED victim #103 (RED)
+   REGISTERED victim #102 (YELLOW)
+   REGISTERED victim #101 (RED)
+   ROAD BLOCKED: Bindal Bridge <-> Hill Colony
+
+RESQ simulation complete.
