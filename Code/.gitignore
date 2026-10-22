@@ -1,0 +1,16 @@
+# Build output
+build/
+resq
+resq.exe
+resq_tests
+resq_tests.exe
+*.o
+*.obj
+
+# Runtime data (created by the program; never commit real records)
+data/
+*.tmp
+*.bak
+*.damaged
+*.before-erase
+resq_test_*/
