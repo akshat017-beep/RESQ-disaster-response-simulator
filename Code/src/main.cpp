@@ -1,29 +1,21 @@
-#include "resq_app.h"
+#include "app.h"
 
-#include <exception>
-#include <iostream>
+#include "resq_c.h"
 
-int main(int argc, char* argv[])
-{
-    resq::AppOptions options;
-    std::string error;
-    if (!resq::AppOptions::parse(argc, argv, options, error)) {
-        std::cerr << "resq: " << error << "\n\n" << resq::AppOptions::usage();
-        return 2;
+int main(int argc, char* argv[]) {
+    std::string folder = "data";
+    bool color = resq_enable_ansi() == 1;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--no-color") {
+            color = false;
+        } else if (arg == "--help") {
+            std::cout << "Usage: resq [--no-color] [data-folder]\n";
+            return 0;
+        } else {
+            folder = arg;
+        }
     }
-    if (options.showHelp) {
-        std::cout << resq::AppOptions::usage();
-        return 0;
-    }
-    if (options.showVersion) {
-        std::cout << "RESQ " << resq::kVersion << '\n';
-        return 0;
-    }
-    try {
-        resq::RESQApplication app(options);
-        return app.run();
-    } catch (const std::exception& ex) {
-        std::cerr << "RESQ stopped because of an unexpected error: " << ex.what() << '\n';
-        return 1;
-    }
+    resq::RESQApplication app(folder, color);
+    return app.run();
 }

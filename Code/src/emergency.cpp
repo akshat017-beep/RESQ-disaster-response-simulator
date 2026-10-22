@@ -1,242 +1,125 @@
 #include "emergency.h"
 
-#include "util.h"
-
+#include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <stdexcept>
 
 namespace resq {
 
+static_assert(40 + 40 + 10 < 100, "Extra points must stay below one severity band");
+
 namespace {
 
-void require(const std::string& error)
-{
-    if (!error.empty()) {
-        throw std::invalid_argument(error);
-    }
-}
-
-std::string validateText(const std::string& value, const char* label, size_t maxLength)
-{
-    if (value.empty()) {
-        return std::string(label) + " is required.";
-    }
-    if (util::utf8Length(value) > maxLength) {
-        return std::string(label) + " must be at most " + std::to_string(maxLength) + " characters.";
-    }
-    if (!util::isPrintableText(value)) {
-        return std::string(label) + " contains invalid control characters.";
-    }
-    return "";
+void require(const std::string& error) {
+    if (!error.empty()) throw std::invalid_argument(error);
 }
 
 }
 
-Emergency::Emergency(std::string id, std::string reporter, Category category, std::string location,
-                     std::string contact, std::string description, Severity severity, int affected,
-                     std::time_t registeredAt, bool demo)
-    : id_(util::toUpper(util::trim(id))),
-      reporter_(util::trim(reporter)),
-      category_(category),
-      location_(util::trim(location)),
-      contact_(util::trim(contact)),
-      description_(util::trim(description)),
-      severity_(severity),
-      affected_(affected),
-      registeredAt_(registeredAt),
-      demo_(demo)
-{
-    require(validateId(id_));
-    require(validateReporter(reporter_));
-    require(validateLocation(location_));
-    require(validateContact(contact_));
-    require(validateDescription(description_));
-    require(validateAffected(affected_));
-    if (registeredAt_ <= 0) {
-        throw std::invalid_argument("Registration time is missing or invalid.");
-    }
-    recalculatePriority(registeredAt_);
+Emergency::Emergency(std::string id, std::string reporter, Category category, std::string location, std::string contact,
+                     std::string description, Severity severity, int affected, std::time_t registered, bool demo)
+    : id_(util::upper(util::trim(id))), reporter_(util::trim(reporter)), category_(category),
+      location_(util::trim(location)), contact_(util::trim(contact)), description_(util::trim(description)),
+      severity_(severity), affected_(affected), registered_(registered), demo_(demo) {
+    require(util::validId(id_) ? "" : "ID must be 3-8 letters, digits or '-', starting with a letter.");
+    require(util::checkText(reporter_, "Reporter name", 40));
+    require(util::checkText(location_, "Location", 40));
+    require(checkContact(contact_));
+    require(util::checkText(description_, "Description", 200));
+    require(checkAffected(affected_));
+    require(registered_ > 0 ? "" : "Registration time is invalid.");
+    refresh(registered_);
 }
 
-bool Emergency::isActive() const
-{
+bool Emergency::active() const {
     return status_ == Status::Pending || status_ == Status::Assigned || status_ == Status::InProgress;
 }
 
-std::time_t Emergency::waitEnd(std::time_t now) const
-{
-    if (status_ == Status::Pending) {
-        return now;
-    }
-    if (assignedAt_ > 0) {
-        return assignedAt_;
-    }
-    if (closedAt_ > 0) {
-        return closedAt_;
-    }
-    return now;
+Priority Emergency::priority(std::time_t now) const {
+    static const int categoryPoints[] = {8, 10, 6, 8, 8, 6, 0};
+    Priority p;
+    p.severity = (5 - static_cast<int>(severity_)) * 100;
+    p.people = affected_ <= 0 ? 0 : std::min(40, static_cast<int>(std::lround(10 * std::log2(affected_ + 1.0))));
+    const std::time_t end =
+        status_ == Status::Pending ? now : (assignedAt_ > 0 ? assignedAt_ : (closedAt_ > 0 ? closedAt_ : now));
+    p.minutes = std::max<long long>(0, static_cast<long long>(end - registered_) / 60);
+    p.waiting = static_cast<int>(std::min<long long>(40, p.minutes / 3));
+    p.category = categoryPoints[idx(category_)];
+    return p;
 }
 
-PriorityBreakdown Emergency::priorityBreakdown(std::time_t now) const
-{
-    return PriorityCalculator::compute(severity_, affected_, category_, registeredAt_, waitEnd(now));
+void Emergency::refresh(std::time_t now) { score_ = priority(now).total(); }
+
+void Emergency::requireActive() const {
+    if (!active()) throw std::logic_error("Case " + id_ + " is closed; only its description can be changed.");
 }
 
-int Emergency::recalculatePriority(std::time_t now)
-{
-    priorityScore_ = priorityBreakdown(now).total();
-    return priorityScore_;
-}
-
-void Emergency::requireOpen(const char* field) const
-{
-    if (isClosed()) {
-        throw std::logic_error(std::string("Case ") + id_ + " is " + toString(status_) + "; the " + field +
-                               " can no longer be changed (only the description can be corrected).");
-    }
-}
-
-void Emergency::setSeverity(Severity severity)
-{
-    requireOpen("severity");
+void Emergency::setSeverity(Severity severity) {
+    requireActive();
     severity_ = severity;
 }
 
-void Emergency::setLocation(const std::string& location)
-{
-    requireOpen("location");
-    const std::string value = util::trim(location);
-    require(validateLocation(value));
-    location_ = value;
+void Emergency::setLocation(const std::string& location) {
+    requireActive();
+    require(util::checkText(util::trim(location), "Location", 40));
+    location_ = util::trim(location);
 }
 
-void Emergency::setDescription(const std::string& description)
-{
-    const std::string value = util::trim(description);
-    require(validateDescription(value));
-    description_ = value;
+void Emergency::setDescription(const std::string& description) {
+    require(util::checkText(util::trim(description), "Description", 200));
+    description_ = util::trim(description);
 }
 
-void Emergency::setAffected(int affected)
-{
-    requireOpen("number of people affected");
-    require(validateAffected(affected));
+void Emergency::setAffected(int affected) {
+    requireActive();
+    require(checkAffected(affected));
     affected_ = affected;
 }
 
-bool Emergency::isTransitionAllowed(Status from, Status to)
-{
+bool Emergency::canMove(Status from, Status to) {
     switch (from) {
     case Status::Pending: return to == Status::Assigned || to == Status::Cancelled;
     case Status::Assigned: return to == Status::Pending || to == Status::InProgress || to == Status::Cancelled;
     case Status::InProgress: return to == Status::Resolved || to == Status::Cancelled;
-    case Status::Resolved:
-    case Status::Cancelled: return false;
+    default: return false;
     }
-    return false;
 }
 
-void Emergency::transitionTo(Status target, std::time_t now)
-{
-    if (!isTransitionAllowed(status_, target)) {
-        throw std::logic_error("Cannot change the status of " + id_ + " from " + toString(status_) + " to " +
-                               toString(target) + ".");
-    }
-    switch (target) {
-    case Status::Pending: assignedAt_ = 0; break;
-    case Status::Assigned: assignedAt_ = now; break;
-    case Status::InProgress: startedAt_ = now; break;
-    case Status::Resolved:
-    case Status::Cancelled: closedAt_ = now; break;
-    }
-    status_ = target;
-    recalculatePriority(now);
-}
-
-std::string Emergency::restoreState(Status status, std::time_t assignedAt, std::time_t startedAt,
-                                    std::time_t closedAt)
-{
-    std::string repair;
-    status_ = status;
-    assignedAt_ = assignedAt > 0 ? assignedAt : 0;
-    startedAt_ = startedAt > 0 ? startedAt : 0;
-    closedAt_ = closedAt > 0 ? closedAt : 0;
-
-    if ((status_ == Status::Assigned || status_ == Status::InProgress) && assignedAt_ == 0) {
-        assignedAt_ = registeredAt_;
-        repair = "missing assignment time set to registration time";
-    }
-    if (status_ == Status::InProgress && startedAt_ == 0) {
-        startedAt_ = assignedAt_;
-        repair = "missing start time repaired";
-    }
-    if (isClosed() && closedAt_ == 0) {
-        closedAt_ = registeredAt_;
-        repair = "missing closing time set to registration time (excluded from timing statistics)";
-    }
-    if (status_ == Status::Pending) {
+bool Emergency::moveTo(Status to, std::time_t now) {
+    if (!canMove(status_, to)) return false;
+    if (to == Status::Assigned)
+        assignedAt_ = now;
+    else if (to == Status::Pending)
         assignedAt_ = 0;
-        startedAt_ = 0;
-        closedAt_ = 0;
-    }
-    return repair;
+    else if (to == Status::InProgress)
+        startedAt_ = now;
+    else
+        closedAt_ = now;
+    status_ = to;
+    refresh(now);
+    return true;
 }
 
-std::string Emergency::validateId(const std::string& id)
-{
-    if (id.empty()) {
-        return "Emergency ID is required.";
-    }
-    if (!util::isValidId(id)) {
-        return "Emergency ID must be 3-8 characters (letters, digits or '-') and start with a letter.";
-    }
-    return "";
+void Emergency::restore(Status status, std::time_t assignedAt, std::time_t startedAt, std::time_t closedAt) {
+    status_ = status;
+    assignedAt_ = assignedAt;
+    startedAt_ = startedAt;
+    closedAt_ = closedAt;
 }
 
-std::string Emergency::validateReporter(const std::string& reporter)
-{
-    return validateText(reporter, "Reporter name", kMaxReporter);
-}
-
-std::string Emergency::validateLocation(const std::string& location)
-{
-    return validateText(location, "Location", kMaxLocation);
-}
-
-std::string Emergency::validateContact(const std::string& contact)
-{
-    std::string error = validateText(contact, "Contact information", kMaxContact);
-    if (!error.empty()) {
-        return error;
-    }
-    int digits = 0;
-    for (unsigned char c : contact) {
-        if (std::isdigit(c)) {
-            ++digits;
-        } else if (!(c == '+' || c == '-' || c == ' ' || c == '(' || c == ')' || c == '@' || c == '.' ||
-                     c == '_' || std::isalpha(c))) {
-            return "Contact may contain only digits, letters, spaces and + - ( ) @ . _";
-        }
-    }
-    const size_t at = contact.find('@');
-    const bool looksLikeEmail = at != std::string::npos && at > 0 && contact.find('.', at) != std::string::npos;
-    if (digits < 5 && !looksLikeEmail) {
+std::string Emergency::checkContact(const std::string& contact) {
+    const std::string error = util::checkText(contact, "Contact", 32);
+    if (!error.empty()) return error;
+    const long digits = std::count_if(contact.begin(), contact.end(),
+                                      [](char c) { return std::isdigit(static_cast<unsigned char>(c)) != 0; });
+    if (digits < 5 && contact.find('@') == std::string::npos)
         return "Enter a phone number (at least 5 digits) or an e-mail address.";
-    }
     return "";
 }
 
-std::string Emergency::validateDescription(const std::string& description)
-{
-    return validateText(description, "Description", kMaxDescription);
-}
-
-std::string Emergency::validateAffected(long long affected)
-{
-    if (affected < 0 || affected > kMaxAffected) {
-        return "People affected must be between 0 and " + std::to_string(kMaxAffected) + ".";
-    }
-    return "";
+std::string Emergency::checkAffected(long long affected) {
+    return (affected < 0 || affected > 1000000) ? "People affected must be between 0 and 1000000." : "";
 }
 
 }
