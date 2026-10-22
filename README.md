@@ -11,7 +11,7 @@
 | Akshat Dobhal | Team Member |
 | Ayush Kandwal | Team Member |
 
-**Project Mentor:** Mr. Prabhdeep Singh
+**Project Mentor:** Dr. Prabhdeep Singh
 
 ## Motivation
 
